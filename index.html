@@ -10,7 +10,11 @@
         .main-container{flex:1;display:flex;flex-direction:column}
         .canvas-container{flex:1;position:relative;background-color:#fff;background-image:linear-gradient(#eee 1px,transparent 1px),linear-gradient(90deg,#eee 1px,transparent 1px);background-size:20px 20px;overflow:auto}
         .yaml-container{height:30%;background-color:#f8f8f8;border-top:1px solid #ddd;padding:10px;overflow:auto}
-        .component{position:absolute;width:120px;height:60px;background-color:#fff;border:2px solid #3498db;border-radius:5px;text-align:center;line-height:60px;cursor:move;user-select:none;z-index:10}
+        .component{position:absolute;padding:10px;border:2px solid #3498db;border-radius:8px;background-color:#ecf0f1;box-shadow:0 4px 8px #0000001a;cursor:move;transition:transform .2s}
+        .component:hover{transform:scale(1.05)}
+        .endpoint{width:10px;height:10px;border-radius:50%;background-color:#3498db;position:absolute}
+        .endpoint.input{top:50%;left:-5px;transform:translateY(-50%)}
+        .endpoint.output{top:50%;right:-5px;transform:translateY(-50%)}
         .component.gateway{border-color:#9b59b6}
         .component.virtualservice{border-color:#2ecc71}
         .component.destinationrule{border-color:#e74c3c}
