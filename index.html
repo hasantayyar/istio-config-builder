@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Istio Configuration Builder</title>
+    <style>
+        body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;margin:0;padding:0;display:flex;height:100vh}
+        .sidebar{width:250px;background-color:#f5f5f5;border-right:1px solid #ddd;padding:15px;overflow-y:auto}
+        .main-container{flex:1;display:flex;flex-direction:column}
+        .canvas-container{flex:1;position:relative;background-color:#fff;background-image:linear-gradient(#eee 1px,transparent 1px),linear-gradient(90deg,#eee 1px,transparent 1px);background-size:20px 20px;overflow:auto}
+        .yaml-container{height:30%;background-color:#f8f8f8;border-top:1px solid #ddd;padding:10px;overflow:auto}
+        .component{position:absolute;width:120px;height:60px;background-color:#fff;border:2px solid #3498db;border-radius:5px;text-align:center;line-height:60px;cursor:move;user-select:none;z-index:10}
+        .component.gateway{border-color:#9b59b6}
+        .component.virtualservice{border-color:#2ecc71}
+        .component.destinationrule{border-color:#e74c3c}
+        .component.service{border-color:#f39c12}
+        .component-btn{display:block;width:100%;padding:10px;margin-bottom:10px;background-color:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;text-align:left}
+        .component-btn.gateway{background-color:#9b59b6}
+        .component-btn.virtualservice{background-color:#2ecc71}
+        .component-btn.destinationrule{background-color:#e74c3c}
+        .component-btn.service{background-color:#f39c12}
+        .component-btn:hover{opacity:.9}
+        .toolbar{padding:10px;background-color:#f0f0f0;border-bottom:1px solid #ddd}
+        .toolbar button{padding:5px 10px;margin-right:5px;background-color:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer}
+        .toolbar button:hover{opacity:.9}
+        .endpoint{width:10px;height:10px;background-color:#333;border-radius:50%;position:absolute;z-index:11}
+        .endpoint.input{top:25px;left:-5px}
+        .endpoint.output{top:25px;right:-5px}
+        .connection{position:absolute;height:2px;background-color:#333;transform-origin:0 0;z-index:9}
+        .properties-panel{position:absolute;top:20px;right:20px;width:300px;background-color:#fff;border:1px solid #ddd;border-radius:5px;padding:15px;box-shadow:0 0 10px #0000001a;z-index:100;display:none}
+        .properties-panel h3{margin-top:0;border-bottom:1px solid #eee;padding-bottom:10px}
+        .properties-panel label{display:block;margin-top:10px}
+        .properties-panel input,.properties-panel select{width:100%;padding:5px;margin-top:5px}
+        .properties-panel button{margin-top:15px;padding:5px 10px;background-color:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer}
+        pre{margin:0}
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Components</h2>
+        <button class="component-btn gateway" draggable="true" data-type="gateway">Gateway</button>
+        <button class="component-btn virtualservice" draggable="true" data-type="virtualservice">Virtual Service</button>
+        <button class="component-btn destinationrule" draggable="true" data-type="destinationrule">Destination Rule</button>
+        <button class="component-btn service" draggable="true" data-type="service">Service</button>
+        
+        <h2>Templates</h2>
+        <button class="component-btn" id="simple-routing">Simple Routing</button>
+        <button class="component-btn" id="canary-deployment">Canary Deployment</button>
+        <button class="component-btn" id="fault-injection">Fault Injection</button>
+    </div>
+    
+    <div class="main-container">
+        <div class="toolbar">
+            <button id="export-btn">Export YAML</button>
+            <button id="import-btn">Import YAML</button>
+            <button id="save-btn">Save</button>
+            <button id="load-btn">Load</button>
+            <button id="clear-btn">Clear Canvas</button>
+        </div>
+        
+        <div class="canvas-container" id="canvas">
+            <!-- Components will be added here dynamically -->
+        </div>
+        
+        <div class="yaml-container">
+            <pre id="yaml-output">apiVersion: networking.istio.io/v1alpha3
+# Drag and drop components to generate Istio configuration YAML</pre>
+        </div>
+    </div>
+    
+    <div class="properties-panel" id="properties-panel">
+        <h3>Component Properties</h3>
+        <div id="properties-content">
+            <!-- Properties will be added here dynamically -->
+        </div>
+        <button id="apply-properties">Apply</button>
+        <button id="close-properties">Close</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+    <script>
+        // Global variables
+        let components = [];
+        let connections = [];
+        let selectedComponent = null;
+        let selectedConnection = null;
+        let isDragging = false;
+        let isConnecting = false;
+        let startComponent = null;
+        let startPoint = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+        let nextId = 1;
+        
+        // DOM elements
+        const canvas = document.getElementById('canvas');
+        const yamlOutput = document.getElementById('yaml-output');
+        const propertiesPanel = document.getElementById('properties-panel');
+        const propertiesContent = document.getElementById('properties-content');
+        
+        // Initialize the application
+        function init() {
+            // Add event listeners for component buttons
+            document.querySelectorAll('.component-btn[data-type]').forEach(btn => {
+                btn.addEventListener('dragstart', handleDragStart);
+                btn.addEventListener('click', function() {
+                    createComponent(this.dataset.type);
+                });
+            });
+            
+            // Canvas event listeners
+            canvas.addEventListener('dragover', handleDragOver);
+            canvas.addEventListener('drop', handleDrop);
+            canvas.addEventListener('click', handleCanvasClick);
+            
+            // Toolbar buttons
+            document.getElementById('export-btn').addEventListener('click', exportYaml);
+            document.getElementById('import-btn').addEventListener('click', importYaml);
+            document.getElementById('save-btn').addEventListener('click', saveConfiguration);
+            document.getElementById('load-btn').addEventListener('click', loadConfiguration);
+            document.getElementById('clear-btn').addEventListener('click', clearCanvas);
+            
+            // Properties panel buttons
+            document.getElementById('apply-properties').addEventListener('click', applyProperties);
+            document.getElementById('close-properties').addEventListener('click', closePropertiesPanel);
+            
+            // Template buttons
+            document.getElementById('simple-routing').addEventListener('click', loadSimpleRoutingTemplate);
+            document.getElementById('canary-deployment').addEventListener('click', loadCanaryDeploymentTemplate);
+            document.getElementById('fault-injection').addEventListener('click', loadFaultInjectionTemplate);
+        }
+        
+        // Component creation and management
+        function createComponent(type, x = 100, y = 100, props = {}) {
+            const id = `component-${nextId++}`;
+            const component = document.createElement('div');
+            component.id = id;
+            component.className = `component ${type}`;
+            component.textContent = props.name || type;
+            component.dataset.type = type;
+            component.style.left = `${x}px`;
+            component.style.top = `${y}px`;
+            
+            // Add endpoints for connections
+            const inputEndpoint = document.createElement('div');
+            inputEndpoint.className = 'endpoint input';
+            inputEndpoint.dataset.componentId = id;
+            
+            const outputEndpoint = document.createElement('div');
+            outputEndpoint.className = 'endpoint output';
+            outputEndpoint.dataset.componentId = id;
+            
+            component.appendChild(inputEndpoint);
+            component.appendChild(outputEndpoint);
+            
+            // Add event listeners
+            component.addEventListener('mousedown', handleComponentMouseDown);
+            component.addEventListener('dblclick', handleComponentDblClick);
+            
+            inputEndpoint.addEventListener('mousedown', handleEndpointMouseDown);
+            outputEndpoint.addEventListener('mousedown', handleEndpointMouseDown);
+            
+            canvas.appendChild(component);
+            
+            // Add to components array
+            components.push({
+                id,
+                type,
+                element: component,
+                properties: {
+                    name: props.name || `${type}-${id.split('-')[1]}`,
+                    ...props
+                }
+            });
+            
+            updateYaml();
+            return component;
+        }
+        
+        function handleDragStart(event) {
+            event.dataTransfer.setData('text/plain', event.target.dataset.type);
+        }
+        
+        function handleDragOver(event) {
+            event.preventDefault();
+        }
+        
+        function handleDrop(event) {
+            event.preventDefault();
+            const type = event.dataTransfer.getData('text/plain');
+            if (type) {
+                const rect = canvas.getBoundingClientRect();
+                const x = event.clientX - rect.left;
+                const y = event.clientY - rect.top;
+                createComponent(type, x, y);
+            }
+        }
+        
+        function handleComponentMouseDown(event) {
+            if (isConnecting) return;
+            
+            const component = event.currentTarget;
+            selectedComponent = component;
+            
+            // Calculate offset for smooth dragging
+            const rect = component.getBoundingClientRect();
+            dragOffsetX = event.clientX - rect.left;
+            dragOffsetY = event.clientY - rect.top;
+            
+            isDragging = true;
+            
+            // Add event listeners for dragging
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            
+            event.stopPropagation();
+        }
+        
+        function handleMouseMove(event) {
+            if (isDragging && selectedComponent) {
+                const rect = canvas.getBoundingClientRect();
+                const x = event.clientX - rect.left - dragOffsetX;
+                const y = event.clientY - rect.top - dragOffsetY;
+                
+                selectedComponent.style.left = `${x}px`;
+                selectedComponent.style.top = `${y}px`;
+                
+                // Update connections
+                updateConnections();
+            } else if (isConnecting && startPoint) {
+                // Draw temporary connection line
+                const rect = canvas.getBoundingClientRect();
+                const endX = event.clientX - rect.left;
+                const endY = event.clientY - rect.top;
+                
+                // Remove any existing temporary connection
+                const tempConn = document.getElementById('temp-connection');
+                if (tempConn) tempConn.remove();
+                
+                // Create new temporary connection
+                const startRect = startPoint.getBoundingClientRect();
+                const startX = startRect.left + startRect.width / 2 - rect.left;
+                const startY = startRect.top + startRect.height / 2 - rect.top;
+                
+                drawConnection(startX, startY, endX, endY, 'temp-connection');
+            }
+        }
+        
+        function handleMouseUp(event) {
+            if (isDragging) {
+                isDragging = false;
+                updateYaml();
+            }
+            
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+        
+        function handleEndpointMouseDown(event) {
+            isConnecting = true;
+            startPoint = event.target;
+            startComponent = components.find(c => c.id === event.target.dataset.componentId);
+            
+            // Add event listeners for connection creation
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleConnectionEnd);
+            
+            event.stopPropagation();
+        }
+        
+        function handleConnectionEnd(event) {
+            // Remove temporary connection
+            const tempConn = document.getElementById('temp-connection');
+            if (tempConn) tempConn.remove();
+            
+            if (isConnecting && startPoint) {
+                // Check if we're over an endpoint
+                const elementsUnderCursor = document.elementsFromPoint(event.clientX, event.clientY);
+                const endPoint = elementsUnderCursor.find(el => 
+                    el.classList && el.classList.contains('endpoint') && 
+                    el !== startPoint &&
+                    el.dataset.componentId !== startPoint.dataset.componentId
+                );
+                
+                if (endPoint) {
+                    const endComponent = components.find(c => c.id === endPoint.dataset.componentId);
+                    
+                    // Create a connection
+                    createConnection(startComponent, endComponent);
+                }
+            }
+            
+            isConnecting = false;
+            startPoint = null;
+            startComponent = null;
+            
+            // Continue from where we left off
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleConnectionEnd);
+        }
+        
+        function createConnection(sourceComponent, targetComponent) {
+            const connectionId = `connection-${connections.length + 1}`;
+            
+            connections.push({
+                id: connectionId,
+                source: sourceComponent.id,
+                target: targetComponent.id,
+                properties: {}
+            });
+            
+            updateConnections();
+            updateYaml();
+        }
+        
+        function updateConnections() {
+            // Remove all existing connection lines
+            document.querySelectorAll('.connection:not(#temp-connection)').forEach(conn => {
+                conn.remove();
+            });
+            
+            // Redraw all connections
+            connections.forEach(connection => {
+                const sourceEl = document.getElementById(connection.source);
+                const targetEl = document.getElementById(connection.target);
+                
+                if (sourceEl && targetEl) {
+                    const sourceRect = sourceEl.getBoundingClientRect();
+                    const targetRect = targetEl.getBoundingClientRect();
+                    const canvasRect = canvas.getBoundingClientRect();
+                    
+                    // Calculate connection points
+                    const sourceX = sourceRect.right - canvasRect.left;
+                    const sourceY = sourceRect.top + sourceRect.height / 2 - canvasRect.top;
+                    const targetX = targetRect.left - canvasRect.left;
+                    const targetY = targetRect.top + targetRect.height / 2 - canvasRect.top;
+                    
+                    drawConnection(sourceX, sourceY, targetX, targetY, connection.id);
+                }
+            });
+        }
+        
+        function drawConnection(x1, y1, x2, y2, id) {
+            const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+            const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+            
+            const connection = document.createElement('div');
+            connection.id = id;
+            connection.className = 'connection';
+            connection.style.width = `${length}px`;
+            connection.style.left = `${x1}px`;
+            connection.style.top = `${y1}px`;
+            connection.style.transform = `rotate(${angle}deg)`;
+            
+            if (id !== 'temp-connection') {
+                connection.addEventListener('click', function(event) {
+                    selectConnection(id);
+                    event.stopPropagation();
+                });
+            }
+            
+            canvas.appendChild(connection);
+            return connection;
+        }
+        
+        function selectConnection(id) {
+            // Highlight selected connection
+            document.querySelectorAll('.connection').forEach(conn => {
+                conn.style.backgroundColor = '#333';
+                conn.style.height = '2px';
+            });
+            
+            const connElement = document.getElementById(id);
+            if (connElement) {
+                connElement.style.backgroundColor = '#e74c3c';
+                connElement.style.height = '3px';
+                
+                selectedConnection = connections.find(c => c.id === id);
+                showConnectionProperties(selectedConnection);
+            }
+        }
+        
+        function handleComponentDblClick(event) {
+            const component = event.currentTarget;
+            const componentData = components.find(c => c.id === component.id);
+            
+            if (componentData) {
+                showComponentProperties(componentData);
+            }
+            
+            event.stopPropagation();
+        }
+        
+        function handleCanvasClick() {
+            // Deselect everything
+            selectedComponent = null;
+            selectedConnection = null;
+            
+            document.querySelectorAll('.component').forEach(comp => {
+                comp.style.boxShadow = 'none';
+            });
+            
+            document.querySelectorAll('.connection').forEach(conn => {
+                conn.style.backgroundColor = '#333';
+                conn.style.height = '2px';
+            });
+            
+            closePropertiesPanel();
+        }
+        
+        // Properties panel functions
+        function showComponentProperties(component) {
+            propertiesContent.innerHTML = '';
+            
+            const title = document.createElement('h4');
+            title.textContent = `${component.type} Properties`;
+            propertiesContent.appendChild(title);
+            
+            // Create form fields based on component type
+            const fields = getComponentFields(component.type);
+            
+            fields.forEach(field => {
+                const label = document.createElement('label');
+                label.textContent = field.label;
+                
+                const input = document.createElement('input');
+                input.type = field.type || 'text';
+                input.name = field.name;
+                input.value = component.properties[field.name] || '';
+                
+                label.appendChild(input);
+                propertiesContent.appendChild(label);
+            });
+            
+            // Store reference to the component being edited
+            propertiesPanel.dataset.componentId = component.id;
+            propertiesPanel.dataset.type = 'component';
+            
+            // Show the panel
+            propertiesPanel.style.display = 'block';
+        }
+        
+        function showConnectionProperties(connection) {
+            propertiesContent.innerHTML = '';
+            
+            const title = document.createElement('h4');
+            title.textContent = 'Connection Properties';
+            propertiesContent.appendChild(title);
+            
+            // Create form fields for connection
+            const fields = [
+                { name: 'weight', label: 'Traffic Weight (%)', type: 'number' },
+                { name: 'timeout', label: 'Timeout (ms)', type: 'number' }
+            ];
+            
+            fields.forEach(field => {
+                const label = document.createElement('label');
+                label.textContent = field.label;
+                
+                const input = document.createElement('input');
+                input.type = field.type || 'text';
+                input.name = field.name;
+                input.value = connection.properties[field.name] || '';
+                
+                label.appendChild(input);
+                propertiesContent.appendChild(label);
+            });
+            
+            // Store reference to the connection being edited
+            propertiesPanel.dataset.connectionId = connection.id;
+            propertiesPanel.dataset.type = 'connection';
+            
+            // Show the panel
+            propertiesPanel.style.display = 'block';
+        }
+        
+        function applyProperties() {
+            const type = propertiesPanel.dataset.type;
+            
+            if (type === 'component') {
+                const componentId = propertiesPanel.dataset.componentId;
+                const component = components.find(c => c.id === componentId);
+                
+                if (component) {
+                    // Update component properties
+                    const inputs = propertiesContent.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        component.properties[input.name] = input.value;
+                    });
+                    
+                    // Update component display
+                    const componentEl = document.getElementById(componentId);
+                    if (componentEl && component.properties.name) {
+                        componentEl.textContent = component.properties.name;
+                        
+                        // Re-add endpoints that were removed when textContent was changed
+                        const inputEndpoint = document.createElement('div');
+                        inputEndpoint.className = 'endpoint input';
+                        inputEndpoint.dataset.componentId = componentId;
+                        
+                        const outputEndpoint = document.createElement('div');
+                        outputEndpoint.className = 'endpoint output';
+                        outputEndpoint.dataset.componentId = componentId;
+                        
+                        componentEl.appendChild(inputEndpoint);
+                        componentEl.appendChild(outputEndpoint);
+                        
+                        // Re-add event listeners
+                        inputEndpoint.addEventListener('mousedown', handleEndpointMouseDown);
+                        outputEndpoint.addEventListener('mousedown', handleEndpointMouseDown);
+                    }
+                }
+            } else if (type === 'connection') {
+                const connectionId = propertiesPanel.dataset.connectionId;
+                const connection = connections.find(c => c.id === connectionId);
+                
+                if (connection) {
+                    // Update connection properties
+                    const inputs = propertiesContent.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        connection.properties[input.name] = input.value;
+                    });
+                }
+            }
+            
+            updateYaml();
+            closePropertiesPanel();
+        }
+        
+        function closePropertiesPanel() {
+            propertiesPanel.style.display = 'none';
+        }
+        
+        function getComponentFields(type) {
+            // Return form fields based on component type
+            const commonFields = [
+                { name: 'name', label: 'Name' }
+            ];
+            
+            switch (type) {
+                case 'gateway':
+                    return [
+                        ...commonFields,
+                        { name: 'selector', label: 'Selector' },
+                        { name: 'port', label: 'Port', type: 'number' },
+                        { name: 'protocol', label: 'Protocol' },
+                        { name: 'hosts', label: 'Hosts' }
+                    ];
+                case 'virtualservice':
+                    return [
+                        ...commonFields,
+                        { name: 'hosts', label: 'Hosts' },
+                        { name: 'gateways', label: 'Gateways' }
+                    ];
+                case 'destinationrule':
+                    return [
+                        ...commonFields,
+                        { name: 'host', label: 'Host' },
+                        { name: 'subsets', label: 'Subsets' }
+                    ];
+                case 'service':
+                    return [
+                        ...commonFields,
+                        { name: 'port', label: 'Port', type: 'number' },
+                        { name: 'protocol', label: 'Protocol' },
+                        { name: 'version', label: 'Version' }
+                    ];
+                default:
+                    return commonFields;
+            }
+        }
+        
+        // YAML generation and management
+        function updateYaml() {
+            const config = generateIstioConfig();
+            yamlOutput.textContent = jsyaml.dump(config);
+        }
+        
+        function generateIstioConfig() {
+            const config = [];
+            
+            // Process each component
+            components.forEach(component => {
+                const resource = createResourceObject(component);
+                if (resource) {
+                    config.push(resource);
+                }
+            });
+            
+            return config;
+        }
+        
+        function createResourceObject(component) {
+            const props = component.properties;
+            
+            switch (component.type) {
+                case 'gateway':
+                    return {
+                        apiVersion: 'networking.istio.io/v1alpha3',
+                        kind: 'Gateway',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            selector: {
+                                istio: props.selector || 'ingressgateway'
+                            },
+                            servers: [
+                                {
+                                    port: {
+                                        number: parseInt(props.port) || 80,
+                                        name: 'http',
+                                        protocol: props.protocol || 'HTTP'
+                                    },
+                                    hosts: props.hosts ? props.hosts.split(',').map(h => h.trim()) : ['*']
+                                }
+                            ]
+                        }
+                    };
+                
+                case 'virtualservice':
+                    return {
+                        apiVersion: 'networking.istio.io/v1alpha3',
+                        kind: 'VirtualService',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            hosts: props.hosts ? props.hosts.split(',').map(h => h.trim()) : ['*'],
+                            gateways: props.gateways ? props.gateways.split(',').map(g => g.trim()) : [],
+                            http: generateHttpRoutes(component)
+                        }
+                    };
+                
+                case 'destinationrule':
+                    return {
+                        apiVersion: 'networking.istio.io/v1alpha3',
+                        kind: 'DestinationRule',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            host: props.host || '',
+                            subsets: generateSubsets(component)
+                        }
+                    };
+                
+                case 'service':
+                    return {
+                        apiVersion: 'v1',
+                        kind: 'Service',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            ports: [
+                                {
+                                    port: parseInt(props.port) || 80,
+                                    name: 'http',
+                                    protocol: props.protocol || 'TCP'
+                                }
+                            ],
+                            selector: {
+                                app: props.name,
+                                version: props.version || 'v1'
+                            }
+                        }
+                    };
+            }
+            
+            return null;
+        }
+        
+        function generateHttpRoutes(vsComponent) {
+            const routes = [];
+            
+            // Find connections from this VS to services
+            const vsConnections = connections.filter(conn => conn.source === vsComponent.id);
+            
+            vsConnections.forEach(conn => {
+                const targetComponent = components.find(c => c.id === conn.target);
+                
+                if (targetComponent && targetComponent.type === 'service') {
+                    const route = {
+                        route: [
+                            {
+                                destination: {
+                                    host: targetComponent.properties.name,
+                                    port: {
+                                        number: parseInt(targetComponent.properties.port) || 80
+                                    }
+                                }
+                            }
+                        ]
+                    };
+                    
+                    // Add weight if specified
+                    if (conn.properties.weight) {
+                        route.route[0].weight = parseInt(conn.properties.weight);
+                    }
+                    
+                    // Add timeout if specified
+                    if (conn.properties.timeout) {
+                        route.timeout = `${conn.properties.timeout}ms`;
+                    }
+                    
+                    routes.push(route);
+                }
+            });
+            
+            return routes;
+        }
+        
+        function generateSubsets(drComponent) {
+            const subsets = [];
+            
+            // Find connections from this DR to services
+            const drConnections = connections.filter(conn => conn.source === drComponent.id);
+            
+            drConnections.forEach(conn => {
+                const targetComponent = components.find(c => c.id === conn.target);
+                
+                if (targetComponent && targetComponent.type === 'service') {
+                    subsets.push({
+                        name: targetComponent.properties.version || 'v1',
+                        labels: {
+                            version: targetComponent.properties.version || 'v1'
+                        }
+                    });
+                }
+            });
+            
+            return subsets;
+        }
+        
+        // Import/Export functions
+        function exportYaml() {
+            const yaml = yamlOutput.textContent;
+            const blob = new Blob([yaml], { type: 'text/yaml' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'istio-config.yaml';
+            a.click();
+            
+            URL.revokeObjectURL(url);
+        }
+        
+        function importYaml() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.yaml,.yml';
+            
+            input.onchange = function(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const yaml = e.target.result;
+                            yamlOutput.textContent = yaml;
+                            
+                            // TODO: Parse YAML and create components from the imported configuration
+                            // This is a complex task that would require parsing the YAML structure
+                            // and creating corresponding visual components
+                            alert('YAML imported to editor. Visual representation not implemented yet.');
+                        } catch (error) {
+                            alert('Error parsing YAML: ' + error.message);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            
+            input.click();
+        }
+        
+        // Save/Load functions
+        function saveConfiguration() {
+            const config = {
+                components: components.map(c => ({
+                    id: c.id,
+                    type: c.type,
+                    properties: c.properties,
+                    position: {
+                        left: c.element.style.left,
+                        top: c.element.style.top
+                    }
+                })),
+                connections: connections
+            };
+            
+            const json = JSON.stringify(config);
+            localStorage.setItem('istioConfig', json);
+            
+            alert('Configuration saved to browser storage');
+        }
+        
+        function loadConfiguration() {
+            const json = localStorage.getItem('istioConfig');
+            if (!json) {
+                alert('No saved configuration found');
+                return;
+            }
+            
+            try {
+                clearCanvas();
+                
+                const config = JSON.parse(json);
+                
+                // Recreate components
+                config.components.forEach(c => {
+                    const x = parseInt(c.position.left) || 100;
+                    const y = parseInt(c.position.top) || 100;
+                    createComponent(c.type, x, y, c.properties);
+                });
+                
+                // Recreate connections
+                config.connections.forEach(conn => {
+                    connections.push(conn);
+                });
+                
+                updateConnections();
+                updateYaml();
+                
+                alert('Configuration loaded');
+            } catch (error) {
+                alert('Error loading configuration: ' + error.message);
+            }
+        }
+        
+        function clearCanvas() {
+            // Remove all components
+            components.forEach(c => {
+                const el = document.getElementById(c.id);
+                if (el) el.remove();
+            });
+            
+            // Remove all connections
+            document.querySelectorAll('.connection').forEach(conn => {
+                conn.remove();
+            });
+            
+            // Reset arrays
+            components = [];
+            connections = [];
+            
+            // Reset YAML
+            updateYaml();
+        }
+        
+        // Template functions
+        function loadSimpleRoutingTemplate() {
+            clearCanvas();
+            
+            // Create components
+            const gateway = createComponent('gateway', 100, 100, { 
+                name: 'my-gateway',
+                selector: 'istio-ingressgateway',
+                port: 80,
+                protocol: 'HTTP',
+                hosts: '*'
+            });
+            
+            const vs = createComponent('virtualservice', 300, 100, {
+                name: 'my-virtualservice',
+                hosts: '*',
+                gateways: 'my-gateway'
+            });
+            
+            const service = createComponent('service', 500, 100, {
+                name: 'my-service',
+                port: 80,
+                protocol: 'HTTP',
+                version: 'v1'
+            });
+            
+            // Create connections
+            setTimeout(() => {
+                createConnection(
+                    components.find(c => c.id === gateway.id),
+                    components.find(c => c.id === vs.id)
+                );
+                
+                createConnection(
+                    components.find(c => c.id === vs.id),
+                    components.find(c => c.id === service.id)
+                );
+                
+                updateConnections();
+                updateYaml();
+            }, 100);
+        }
+        
+        function loadCanaryDeploymentTemplate() {
+            clearCanvas();
+            
+            // Create components
+            const gateway = createComponent('gateway', 100, 150, { 
+                name: 'my-gateway',
+                selector: 'istio-ingressgateway',
+                port: 80,
+                protocol: 'HTTP',
+                hosts: '*'
+            });
+            
+            const vs = createComponent('virtualservice', 300, 150, {
+                name: 'my-virtualservice',
+                hosts: '*',
+                gateways: 'my-gateway'
+            });
+            
+            const dr = createComponent('destinationrule', 500, 150, {
+                name: 'my-destinationrule',
+                host: 'my-service'
+            });
+            
+            const serviceV1 = createComponent('service', 700, 100, {
+                name: 'my-service',
+                port: 80,
+                protocol: 'HTTP',
+                version: 'v1'
+            });
+            
+            const serviceV2 = createComponent('service', 700, 200, {
+                name: 'my-service',
+                port: 80,
+                protocol: 'HTTP',
+                version: 'v2'
+            });
+            
+            // Create connections
+            setTimeout(() => {
+                createConnection(
+                    components.find(c => c.id === gateway.id),
+                    components.find(c => c.id === vs.id)
+                );
+                
+                const vsToV1Conn = {
+                    id: `connection-${connections.length + 1}`,
+                    source: vs.id,
+                    target: serviceV1.id,
+                    properties: { weight: 90 }
+                };
+                
+                const vsToV2Conn = {
+                    id: `connection-${connections.length + 2}`,
+                    source: vs.id,
+                    target: serviceV2.id,
+                    properties: { weight: 10 }
+                };
+                
+                connections.push(vsToV1Conn);
+                connections.push(vsToV2Conn);
+                
+                createConnection(
+                    components.find(c => c.id === dr.id),
+                    components.find(c => c.id === serviceV1.id)
+                );
+                
+                createConnection(
+                    components.find(c => c.id === dr.id),
+                    components.find(c => c.id === serviceV2.id)
+                );
+                
+                updateConnections();
+                updateYaml();
+            }, 100);
+        }
+        
+        function loadFaultInjectionTemplate() {
+            clearCanvas();
+            
+            // Create components
+            const gateway = createComponent('gateway', 100, 150, { 
+                name: 'my-gateway',
+                selector: 'istio-ingressgateway',
+                port: 80,
+                protocol: 'HTTP',
+                hosts: '*'
+            });
+            
+            const vs = createComponent('virtualservice', 300, 150, {
+                name: 'fault-injection-vs',
+                hosts: '*',
+                gateways: 'my-gateway'
+            });
+            
+            const service = createComponent('service', 500, 150, {
+                name: 'my-service',
+                port: 80,
+                protocol: 'HTTP',
+                version: 'v1'
+            });
+            
+            // Create connections
+            setTimeout(() => {
+                createConnection(
+                    components.find(c => c.id === gateway.id),
+                    components.find(c => c.id === vs.id)
+                );
+                
+                const vsToServiceConn = {
+                    id: `connection-${connections.length + 1}`,
+                    source: vs.id,
+                    target: service.id,
+                    properties: { 
+                        timeout: 500,
+                        fault: 'delay=5s,abort=500:10%'
+                    }
+                };
+                
+                connections.push(vsToServiceConn);
+                
+                updateConnections();
+                updateYaml();
+                
+                // Update YAML manually to include fault injection
+                const config = generateIstioConfig();
+                
+                // Find the VirtualService
+                const vsConfig = config.find(c => c.kind === 'VirtualService');
+                if (vsConfig && vsConfig.spec && vsConfig.spec.http && vsConfig.spec.http.length > 0) {
+                    // Add fault injection
+                    vsConfig.spec.http[0].fault = {
+                        delay: {
+                            percentage: {
+                                value: 100
+                            },
+                            fixedDelay: '5s'
+                        },
+                        abort: {
+                            percentage: {
+                                value: 10
+                            },
+                            httpStatus: 500
+                        }
+                    };
+                }
+                
+                yamlOutput.textContent = jsyaml.dump(config);
+            }, 100);
+        }
+        
+        // Initialize the application when the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
