@@ -84,7 +84,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
     <script>
-        // Global variables
         let components = [];
         let connections = [];
         let selectedComponent = null;
@@ -570,6 +569,14 @@
                         { name: 'protocol', label: 'Protocol' },
                         { name: 'version', label: 'Version' }
                     ];
+                case 'serviceentry':
+                    return [
+                        ...commonFields,
+                        { name: 'hosts', label: 'Hosts' },
+                        { name: 'ports', label: 'Ports' },
+                        { name: 'location', label: 'Location' },
+                        { name: 'resolution', label: 'Resolution' }
+                    ];
                 default:
                     return commonFields;
             }
@@ -669,6 +676,29 @@
                                 app: props.name,
                                 version: props.version || 'v1'
                             }
+                        }
+                    };
+        
+        
+                case 'serviceentry':
+                    return {
+                        apiVersion: 'networking.istio.io/v1alpha3',
+                        kind: 'ServiceEntry',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            hosts: props.hosts ? props.hosts.split(',').map(h => h.trim()) : [],
+                            ports: props.ports ? props.ports.split(',').map(p => {
+                                const [number, name, protocol] = p.split(':');
+                                return {
+                                    number: parseInt(number),
+                                    name: name || 'http',
+                                    protocol: protocol || 'HTTP'
+                                };
+                            }) : [],
+                            location: props.location || 'MESH_EXTERNAL',
+                            resolution: props.resolution || 'DNS'
                         }
                     };
             }
@@ -1050,6 +1080,7 @@
         
         // Initialize the application when the DOM is fully loaded
         document.addEventListener('DOMContentLoaded', init);
+
     </script>
 </body>
 </html>
