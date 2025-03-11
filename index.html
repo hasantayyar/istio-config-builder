@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,6 +20,9 @@
         .component.virtualservice{border-color:#2ecc71}
         .component.destinationrule{border-color:#e74c3c}
         .component.service{border-color:#f39c12}
+        .component.serviceentry{border-color:#f3e812}
+        .component.authorizationpolicy{border-color:#f3127f}
+        .component.sidecar{border-color:#5e6264af}
         .component-btn{display:block;width:100%;padding:10px;margin-bottom:10px;background-color:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;text-align:left}
         .component-btn.gateway{background-color:#9b59b6}
         .component-btn.virtualservice{background-color:#2ecc71}
@@ -45,12 +49,13 @@
         <h2>Components</h2>
         <button class="component-btn gateway" draggable="true" data-type="gateway">Gateway</button>
         <button class="component-btn virtualservice" draggable="true" data-type="virtualservice">Virtual Service</button>
-        <button class="component-btn virtualservice" draggable="true" data-type="virtualservice">Service Entry</button>
-        <button class="component-btn destinationrule" draggable="true" data-type="destinationrule">Destination Rule</button>
+        <button class="component-btn serviceentry" draggable="true" data-type="serviceentry">Service Entry</button>
         <button class="component-btn service" draggable="true" data-type="service">Service</button>
-        <button class="component-btn service" draggable="true" data-type="service">Authorization Policy</button>
 
-        
+        <button class="component-btn destinationrule" draggable="true" data-type="destinationrule">Destination Rule</button>
+        <button class="component-btn authorizationpolicy" draggable="true" data-type="authorizationpolicy">Authorization Policy</button>
+        <button class="component-btn sidecar" draggable="true" data-type="sidecar">Authorization Policy</button>
+
         <h2>Templates</h2>
         <button class="component-btn" id="simple-routing">Simple Routing</button>
         <button class="component-btn" id="canary-deployment">Canary Deployment</button>
@@ -587,6 +592,13 @@
                         { name: 'action', label: 'Action' },
                         { name: 'rules', label: 'Rules' }
                     ];
+                case 'sidecar':
+                    return [
+                        ...commonFields,
+                        { name: 'workloadSelector', label: 'Workload Selector' },
+                        { name: 'egress', label: 'Egress' },
+                        { name: 'ingress', label: 'Ingress' }
+                    ];
                 default:
                     return commonFields;
             }
@@ -728,6 +740,24 @@
                             rules: props.rules ? JSON.parse(props.rules) : []
                         }
                     };
+        
+                case 'sidecar':
+                return {
+                    apiVersion: 'networking.istio.io/v1alpha3',
+                    kind: 'Sidecar',
+                    metadata: {
+                        name: props.name
+                    },
+                    spec: {
+                        workloadSelector: {
+                            labels: {
+                                app: props.workloadSelector
+                            }
+                        },
+                        egress: props.egress ? JSON.parse(props.egress) : [],
+                        ingress: props.ingress ? JSON.parse(props.ingress) : []
+                    }
+                };
             }
             
             return null;
