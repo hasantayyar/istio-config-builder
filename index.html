@@ -45,8 +45,11 @@
         <h2>Components</h2>
         <button class="component-btn gateway" draggable="true" data-type="gateway">Gateway</button>
         <button class="component-btn virtualservice" draggable="true" data-type="virtualservice">Virtual Service</button>
+        <button class="component-btn virtualservice" draggable="true" data-type="virtualservice">Service Entry</button>
         <button class="component-btn destinationrule" draggable="true" data-type="destinationrule">Destination Rule</button>
         <button class="component-btn service" draggable="true" data-type="service">Service</button>
+        <button class="component-btn service" draggable="true" data-type="service">Authorization Policy</button>
+
         
         <h2>Templates</h2>
         <button class="component-btn" id="simple-routing">Simple Routing</button>
@@ -577,6 +580,13 @@
                         { name: 'location', label: 'Location' },
                         { name: 'resolution', label: 'Resolution' }
                     ];
+                case 'authorizationpolicy':
+                    return [
+                        ...commonFields,
+                        { name: 'selector', label: 'Selector' },
+                        { name: 'action', label: 'Action' },
+                        { name: 'rules', label: 'Rules' }
+                    ];
                 default:
                     return commonFields;
             }
@@ -679,7 +689,6 @@
                         }
                     };
         
-        
                 case 'serviceentry':
                     return {
                         apiVersion: 'networking.istio.io/v1alpha3',
@@ -699,6 +708,24 @@
                             }) : [],
                             location: props.location || 'MESH_EXTERNAL',
                             resolution: props.resolution || 'DNS'
+                        }
+                    };
+        
+                case 'authorizationpolicy':
+                    return {
+                        apiVersion: 'security.istio.io/v1beta1',
+                        kind: 'AuthorizationPolicy',
+                        metadata: {
+                            name: props.name
+                        },
+                        spec: {
+                            selector: {
+                                matchLabels: {
+                                    app: props.selector
+                                }
+                            },
+                            action: props.action || 'ALLOW',
+                            rules: props.rules ? JSON.parse(props.rules) : []
                         }
                     };
             }
